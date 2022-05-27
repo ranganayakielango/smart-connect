@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:mongo="http://www.mulesoft.org/schema/mule/mongo" xmlns:compression="http://www.mulesoft.org/schema/mule/compression"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/compression http://www.mulesoft.org/schema/mule/compression/current/mule-compression.xsd
+http://www.mulesoft.org/schema/mule/mongo http://www.mulesoft.org/schema/mule/mongo/current/mule-mongo.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="275b4468-5b4f-4bab-b604-0e857822e8b5" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<mongo:config name="MongoDB_Config" doc:name="MongoDB Config" doc:id="033265a4-4c67-47b7-847f-9035a51ee499" >
+		<mongo:connection-string-connection connectionString="mongodb+srv://rangan:mosqmouse@cluster0.2oxkj.mongodb.net/gdelt-stream?retryWrites=true&amp;w=majority" />
+	</mongo:config>
+	<flow name="smart-connectFlow1" doc:id="7f7c2f6b-d802-4b78-bc30-99aa497df1cd" >
+		<scheduler doc:name="Scheduler" doc:id="8f30a200-e105-444b-87be-177ff589253a" >
+			<scheduling-strategy >
+				<fixed-frequency frequency="15" timeUnit="MINUTES"/>
+			</scheduling-strategy>
+		</scheduler>
+		<flow-ref doc:name="Flow Reference" doc:id="ff4f6659-5adc-4296-b4db-c746f7bd0238" name="smart-connectSub_Flow"/>
+	</flow>
+	<flow name="smart-connectFlow" doc:id="85c695f6-5e34-491e-8e71-f5f62f4bd072" >
+		<http:listener doc:name="Listener" doc:id="e8ea9646-8286-411a-87d2-b6837c8c594b" config-ref="HTTP_Listener_config" path="/news"/>
+		<flow-ref doc:name="Flow Reference" doc:id="876d5def-0eb7-42c3-9e31-ebb60cfef403" name="smart-connectSub_Flow"/>
+	</flow>
+	<sub-flow name="smart-connectSub_Flow" doc:id="cc9c46a7-c429-493c-b147-f1b9de9f9434" >
+		<http:request method="GET" doc:name="Request" doc:id="42c842f9-162d-414e-bf47-fcaf4cded568" url="http://data.gdeltproject.org/gdeltv2/lastupdate.txt"/>
+		<ee:transform doc:name="Transform Message" doc:id="5805f98e-5322-4433-99aa-2a47872ee30b" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="reqUrl" ><![CDATA[%dw 2.0
+output application/json
+---
+((payload splitBy  "\n") [0] splitBy " ") [2]]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<http:request method="GET" doc:name="Request" doc:id="7cb167ac-aa4c-41b4-93c4-ef6f52a970e5" url="#[vars.reqUrl]"/>
+		<compression:extract doc:name="Extract" doc:id="c96cd3af-b18f-4207-ae6e-585d7bf2538a" >
+			<compression:extractor >
+				<compression:zip-extractor />
+			</compression:extractor>
+		</compression:extract>
+		<ee:transform doc:name="Transform Message" doc:id="6f50cfb1-3c24-4539-9e2e-5482592c0230" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload mapObject {
+  fileName: '$$',
+  fileContent: $
+}
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="Transform Message" doc:id="2f26e93c-f4ec-404d-a4c4-70f1f647784d" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+fun maxsize(text) = max((text splitBy  "/") map() -> sizeOf($))
+fun makeHeadline(text) = (((text splitBy  "/")[?(sizeOf($) == maxsize(text))][0]) splitBy  '-') joinBy " "
+
+fun createNewsObj(row) = {
+    "_id" : row[0],	// GlobalEventId int64()
+    "Day" : row[1],	// int64()
+    "Date" : ((row[1][0 to 3] ++ '-' ++ row[1][4 to 5] ++ '-' ++ row[1][6 to 7]) as Date),
+    "MonthYear" : row[2],	// int64()
+    "Year" : row[3],	// int64()
+    "FractionDate" : row[4],	// double()
+    "Actor1Code" : row[5],	
+    "Actor1Name" : row[6],	
+    "Actor1CountryCode" : row[7],	
+    "Actor1KnownGroupCode" : row[8],	
+    "Actor1EthnicCode" : row[9],	
+    "Actor1Religion1Code" : row[10],	
+    "Actor1Religion2Code" : row[11],	
+    "Actor1Type1Code" : row[12],	
+    "Actor1Type2Code" : row[13],	
+    "Actor1Type3Code" : row[14],	
+    "Actor2Code" : row[15],	
+    "Actor2Name" : row[16],	
+    "Actor2CountryCode" : row[17],	
+    "Actor2KnownGroupCode" : row[18],	
+    "Actor2EthnicCode" : row[19],	
+    "Actor2Religion1Code" : row[20],	
+    "Actor2Religion2Code" : row[21],	
+    "Actor2Type1Code" : row[22],	
+    "Actor2Type2Code" : row[23],	
+    "Actor2Type3Code" : row[24],	
+    "IsRootEvent" : row[25],	// int64()
+    "EventCode" : row[26],	
+    "EventBaseCode" : row[27],	
+    "EventRootCode" : row[28],	
+    "QuadClass" : row[29],	// int64()
+    "GoldsteinScale" : row[30],	// double()
+    "NumMentions" : row[31],	// int64()
+    "NumSources" : row[32],	// int64()
+    "NumArticles" : row[33],	// int64()
+    "AvgTone" : row[34],	// double()
+    "Actor1Geo_Type" : row[35],	// int64()
+    "Actor1Geo_Fullname" : row[36],	
+    "Actor1Geo_CountryCode" : row[37],	
+    "Actor1Geo_ADM1Code" : row[38],	
+    "Actor1Geo_ADM2Code" : row[39],	
+    "Actor1Geo_Lat" : row[40],	
+    "Actor1Geo_Long" : row[41],	
+    "Actor1Geo_FeatureID" : row[42],	
+    "Actor2Geo_Type" : row[43],	// int64()
+    "Actor2Geo_Fullname" : row[44],	
+    "Actor2Geo_CountryCode" : row[45],	
+    "Actor2Geo_ADM1Code" : row[46],	
+    "Actor2Geo_ADM2Code" : row[47],	
+    "Actor2Geo_Lat" : row[48],	
+    "Actor2Geo_Long" : row[49],	
+    "Actor2Geo_FeatureID" : row[50],	
+    "ActionGeo_Type" : row[51],	// int64()
+    "ActionGeo_Fullname" : row[52],	
+    "ActionGeo_CountryCode" : row[53],	
+    "ActionGeo_ADM1Code" : row[54],	
+    "ActionGeo_ADM2Code" : row[55],	
+    "ActionGeo_Lat" : row[56],	
+    "ActionGeo_Long" : row[57],	
+    "ActionGeo_FeatureID" : row[58],	
+    "DATEADDED" : row[59],	
+    "SOURCEURL" : row[60],
+    "HEADLINE" : makeHeadline(row[60]),
+    "downloadId": (payload.fileName splitBy ".")[0]
+}
+
+---
+((payload.fileContent splitBy "\n") map() -> createNewsObj($ splitBy "\t"))[0 to 50]]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<mongo:insert-documents doc:name="Insert documents" doc:id="fa879c69-3048-4b24-8f34-f421f8afdc96" collectionName="events" config-ref="MongoDB_Config"/>
+		<ee:transform doc:name="Transform Message" doc:id="ec13811d-f00f-4bc8-a23a-d10a9cc86098" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+</mule>
